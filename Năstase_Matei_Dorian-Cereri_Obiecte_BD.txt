@@ -1,0 +1,315 @@
+--- cerinta 11:
+
+--- 1 Sa se afiseze numele, prenumele, numarul de telefon si adresa de email a spectatorilor ce au cumparat 
+--- bilete de la un casier angajat in aceeasi zi a saptamanii cu cea din data curenta. Daca numarul 
+--- de telefon sau adresa de email lipsesc se va afisa 'numar necunoscut' respectiv 'email necunoscut'
+--- Ordonati spectatorii alfabetic
+
+SELECT DISTINCT nume || ' ' || prenume "Nume spectator", NVL(numar_telefon, 'numar necunoscut') "Numar de telefon", NVL(email, 'email necunoscut') "Adresa de email"
+FROM SPECTATOR 
+WHERE id_spectator IN (SELECT s.id_spectator 
+                       FROM SPECTATOR s
+                       JOIN (SELECT id_spectator, id_angajat FROM BILET) b ON s.id_spectator = b.id_spectator
+                       JOIN (SELECT id_angajat FROM CASIER) c ON c.id_angajat = b.id_angajat
+                       JOIN (SELECT id_angajat, data_angajare FROM ANGAJAT) a ON a.id_angajat = c.id_angajat
+                       WHERE TO_CHAR(data_angajare, 'D') = (SELECT TO_CHAR(SYSDATE, 'D') FROM DUAL))
+ORDER BY 1; 
+
+
+
+
+
+--- 2 Un bilet are un spatiu limitat pentru a scrie toate informatiile necesare spectatorului. De aceea
+--- exista posibilitatea ca unele trupe de teatru sa apara pe bilet cu un nume prescurtat. Afisati id_ul, numele, 
+--- si lungimea numelui trupelor de teatru ce organizeaza spectacole saptamana viitoare (intr-o zi citita de la tastatura)
+--- Pentru trupele cu lungimea numelui mai mare de 10 caractere se va afisa si o posibila prescurtare obtinuta
+--- prin eliminarea tuturor vocalelor
+
+SELECT x.id_trupa "Id-ul trupei", INITCAP(x.nume) "Nume", LENGTH(x.nume) "Lungimea numelui", 
+       (SELECT REGEXP_REPLACE(UPPER(x.nume),'[A,E,I,O,U]','')
+        FROM   dual) "Prescurtare"
+FROM (SELECT DISTINCT t.nume, t.id_trupa
+      FROM TRUPA t
+      JOIN ACTOR a ON a.id_trupa = t.id_trupa
+      JOIN JOACA j ON a.id_actor = j.id_actor
+      JOIN PIESA p ON j.id_piesa = p.id_piesa
+      JOIN ORGANIZEAZA o ON o.id_piesa = p.id_piesa
+      WHERE TRUNC(o.data_org) = (SELECT TRUNC(NEXT_DAY(SYSDATE, &zi)) FROM DUAL)) x
+WHERE LENGTH(x.nume) > 10;
+
+--- Valorile afisate sunt pentru zi = 'Monday'
+--- pentru folosirea REGEXP_REPLACE am consultat site-ul:
+--- https://docs.oracle.com/cd/B19306_01/server.102/b14200/functions130.htm
+
+
+
+--- 3 Se apropie o recalculare a bugetului teatrului, iar administratorul ia in
+--- considerare o posibila marire a salariilor. Afisati numele, prenumele, numele
+--- departamentului si salariul angajatilor care castiga mai putin decat media pe 
+--- departamentul lor; nu se va lua in calcul si marirea salariului administratorului
+--- De asemenea, nu se vor lua in calcul nici casierii care au comision mai amre de 90%
+--- si ingriitorii fara ore suplimentare
+--- Se stie ca id-urile managerilor sunt 1, 13, 7, 14
+
+
+
+SELECT a.nume "Nume angajat", a.prenume "Prenume", a.salariu "Salariu", 
+       CASE a.id_manager
+       WHEN 1 THEN
+       'Manager'
+       WHEN 7 THEN
+       'Casier'
+       WHEN 13 THEN
+       'Tehnician'
+       WHEN 14 THEN
+       'Ingrijitor'
+       ELSE '?'
+       END "Functie"
+FROM ANGAJAT a
+WHERE a.salariu < (SELECT AVG(a2.salariu) 
+                   FROM ANGAJAT a2, 
+                   (SELECT * FROM CASIER WHERE comision < 0.9) c, 
+                   (SELECT * FROM INGRIJITOR WHERE ore_suplimentare > 0) i
+                   WHERE a.id_manager = a2.id_manager 
+                   AND id_manager IS NOT NULL);
+      
+      
+      
+                   
+--- 4 Administratorul teatrului si-a dat seama ca unele sali din teatru sunt 
+--- folosite prea des si doreste sa mute o parte din spectacole in salile care 
+--- sunt folosite cel mai putin. Afisati id-ul, numele si capacitatea salilor in 
+--- care s-au organizat cele mai putine spectacole
+--- Din cauza numarului mare de spectatori, se vor lua in calcul doar salile 
+--- cu cel putin 120 de locuri.
+
+WITH nr_spec AS
+(
+SELECT COUNT(id_piesa) "NR", id_sala 
+FROM ORGANIZEAZA
+GROUP BY id_sala
+)
+
+SELECT s.id_sala "Id sala", s.nume "Denumire", s.capacitate "Capacitate"
+FROM SALA s
+JOIN nr_spec ON s.id_sala = nr_spec.id_sala
+WHERE NR = (SELECT MIN(COUNT(id_piesa))
+            FROM ORGANIZEAZA
+            GROUP BY id_sala
+            HAVING capacitate >= 120);
+
+
+
+
+
+
+--- 5 In ultima perioada s-au organizat multe spectacole in luna Aprilie,
+--- iar ingrijitorii sunt nevoiti sa verifice starea costumelor actorilor
+--- Afisati denumirea si pretul costumelor aduse de trupele ce au organizat piese 
+--- in luna aprilie. In plus ingrijitorii sunt interesati daca costumele
+--- respective au sau nu accesorii
+
+
+SELECT DISTINCT c.denumire "Denumire", c.pret "Pret", 
+       DECODE(c.accesorii, 1, 'are accesorii', 0, 'fara accesorii') "Accesorii"
+FROM COSTUM c
+JOIN (SELECT id_trupa FROM TRUPA) t ON c.id_trupa = t.id_trupa
+JOIN (SELECT id_actor, id_trupa FROM ACTOR) a ON a.id_trupa = t.id_trupa
+JOIN (SELECT id_actor, id_piesa FROM JOACA) j ON a.id_actor = j.id_actor
+JOIN (SELECT id_piesa FROM PIESA) p ON p.id_piesa = j.id_piesa
+JOIN ORGANIZEAZA o ON p.id_piesa = o.id_piesa
+WHERE TO_CHAR(o.data_org, 'MM') = '04';
+
+
+
+
+--- cerinta 12:
+
+--- 1 Administratorul teatrului doreste marirea salariilor cu 15% 
+--- a tuturor anagajatilor ce au fost angajati la ultima sesiune de recrutari
+
+UPDATE ANGAJAT
+SET salariu = salariu + salariu*0.15
+WHERE data_angajare = (SELECT MAX(data_angajare)
+                        FROM ANGAJAT);
+
+
+
+
+
+--- 2 Deoarece mai multe aparate de la teatru erau stricate acestea
+--- au fost trimise spre reparatie. Dupa reparatii, acestor dispozitive 
+--- li s-a reinoit si garantia. Modificati valoarea câmpului
+--- garantie in True(1) pentru toate dispozitivele 
+--- ce au avut "mici defectiuni"
+
+UPDATE APARATURA
+SET garantie = 1
+WHERE id_aparatura IN (SELECT id_aparatura
+                       FROM FOLOSESTE
+                       WHERE LOWER(stare) LIKE 'mici defectiuni');
+
+
+
+
+
+--- 3 Trupele de teatru vor sa vanda toate costumele ce nu pot fi purtate de niciun actor.
+--- Stergeti din baza de date toate costumele ce au fost vandute.
+
+DELETE FROM COSTUM
+WHERE marime NOT IN (SELECT DISTINCT marime
+                     FROM ACTOR);
+
+
+
+
+
+--- cerinta 13
+--- Crearea secventelor
+
+CREATE SEQUENCE pk_sala
+INCREMENT BY 1
+START WITH 1
+MAXVALUE 99;
+
+CREATE SEQUENCE pk_angajat
+INCREMENT BY 1
+START WITH 1
+MAXVALUE 9999;
+
+CREATE SEQUENCE pk_actor
+INCREMENT BY 1
+START WITH 1
+MAXVALUE 99999;
+
+CREATE SEQUENCE pk_aparatura
+INCREMENT BY 1
+START WITH 1
+MAXVALUE 9999;
+
+CREATE SEQUENCE pk_bilet
+INCREMENT BY 1
+START WITH 1
+MAXVALUE 9999999;
+
+CREATE SEQUENCE pk_piesa
+INCREMENT BY 1
+START WITH 1
+MAXVALUE 99999;
+
+CREATE SEQUENCE pk_trupa
+INCREMENT BY 1
+START WITH 1
+MAXVALUE 999;
+
+CREATE SEQUENCE pk_spectator
+INCREMENT BY 1
+START WITH 1
+MAXVALUE 9999999;
+
+CREATE SEQUENCE pk_recuzita
+INCREMENT BY 1
+START WITH 1
+MAXVALUE 9999;
+
+CREATE SEQUENCE pk_costum
+INCREMENT BY 1
+START WITH 1
+MAXVALUE 9999;
+
+
+
+
+--- cerinta 16:
+
+
+--- 1 Afisati toti actorii care au jucat cel putin o data in sala Ion Luca Caragiale. 
+--- Pentru fiecare actor se vor afisa numele prenumele si trupa de teatru din care face parte. 
+--- Daca actorul nu face parte din nicio trupa se va afisa 'Independent' in coloana cu numele trupei.
+
+SELECT DISTINCT a.nume || ' '|| a.prenume "Nume actor", NVL(t.nume, 'Independent') "Nume trupa"
+FROM ACTOR a
+LEFT OUTER JOIN TRUPA t ON a.id_trupa = t.id_trupa
+RIGHT OUTER JOIN JOACA j ON a.id_actor = j.id_actor
+FULL OUTER JOIN PIESA p ON j.id_piesa = p.id_piesa
+LEFT OUTER JOIN ORGANIZEAZA o ON o.id_piesa = p.id_piesa
+LEFT OUTER JOIN SALA s ON o.id_sala = s.id_sala
+WHERE LOWER(s.nume) LIKE 'sala i. l. caragiale';
+
+
+
+--- 2 Afisati id-ul, numele si prenumele tuturor ingrijitorilor care sunt distribuiti 
+--- sa faca curatenie in fiecare sala a teatrului cu o capacitate mai mare de 200 de persoane.
+
+WITH ingrijitori_harnici AS
+(
+SELECT DISTINCT i.id_angajat
+FROM INGRIJITOR i
+WHERE NOT EXISTS (SELECT 1
+                  FROM SALA s
+                  WHERE capacitate >= 200
+                  AND NOT EXISTS
+                      (SELECT 'x'
+                       FROM INGRIJESTE i2
+                       WHERE s.id_sala = i2.id_sala AND
+                       i.id_angajat = i2.id_angajat))
+)
+
+SELECT a.id_angajat "Cod angajat", a.nume "Nume", a.prenume "Prenume"
+FROM ANGAJAT a
+JOIN ingrijitori_harnici i ON i.id_angajat = a.id_angajat; 
+
+
+
+--- 3 Afisati id-ul actorilor care au jucat in toate piesele scrise de Ion Luca Caragiale 
+--- care au fost reprezentate pe o scena a teatrului.
+
+SELECT j.id_actor
+FROM JOACA j
+MINUS 
+SELECT id_actor
+FROM (SELECT id_actor, id_piesa
+      FROM (SELECT DISTINCT id_actor FROM JOACA),
+           (SELECT id_piesa FROM PIESA WHERE LOWER(autor) LIKE 'ion luca caragiale')
+      MINUS
+      SELECT id_actor, id_piesa
+      FROM JOACA);
+
+
+
+      
+      
+--- cerinta 17: 
+
+
+--- Managerul pe departamentul de vanzari vrea sa verifice ativitatea casierului cu id-ul 10. 
+--- Acesta doreste sa sune cativa clienti pentru a cere feedback. 
+--- Afisati numele, prenumele si numarul de telefon al spectatorilor care au cumparat bilete in valoare 
+--- de minim 30 de lei de la casierul cu id-ul 10.
+
+SELECT nume "Nume", prenume "Prenume", numar_telefon "Numar telefon"
+FROM (SELECT * 
+      FROM SPECTATOR s
+      JOIN BILET b ON b.id_spectator = s.id_spectator
+      JOIN PIESA p ON p.id_piesa = b.id_piesa) 
+WHERE id_angajat = 10 and pret >= 30;  
+--- varianta ineficienta
+
+
+
+WITH bilete AS 
+( 
+SELECT id_spectator, id_piesa 
+FROM BILET
+WHERE id_angajat = 10 
+)
+
+SELECT nume "Nume", prenume "Prenume", numar_telefon "Numar telefon"
+FROM (SELECT nume, prenume, numar_telefon, id_spectator FROM SPECTATOR) s
+JOIN (SELECT id_spectator
+      FROM bilete b
+      JOIN (SELECT id_piesa FROM PIESA WHERE pret >= 30) p ON  p.id_piesa = b.id_piesa)
+      i ON s.id_spectator = i.id_spectator; 
+
+
+
